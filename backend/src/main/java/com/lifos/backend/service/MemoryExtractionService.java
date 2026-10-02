@@ -3,6 +3,7 @@ package com.lifos.backend.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.lifos.backend.dto.UpdateUserProfileRequest;
 import com.lifos.backend.config.AiFoundationProperties;
 import com.lifos.backend.entity.ConversationMemory;
@@ -351,9 +352,19 @@ public class MemoryExtractionService {
     private List<MemoryChunk> callExtractionApi(String apiKey, String prompt) {
         String provider = resolveExtractionProvider();
         String model = resolveExtractionModelName();
-        String url = provider.equals("openai")
-                ? "https://api.openai.com/v1/chat/completions"
-                : "https://openrouter.ai/api/v1/chat/completions";
+        
+        if (provider.equals("gemini")) {
+            return callGeminiExtractionApi(apiKey, model, prompt);
+        }
+
+        String url = switch (provider) {
+            case "openai" -> "https://api.openai.com/v1/chat/completions";
+            case "huggingface" -> {
+                String custom = aiFoundationProperties.getHfInferenceUrl();
+                yield (custom != null && !custom.isBlank()) ? custom : "https://api-inference.huggingface.co/v1/chat/completions";
+            }
+            default -> "https://openrouter.ai/api/v1/chat/completions";
+        };
 
         try {
             ObjectNode body = objectMapper.createObjectNode();
@@ -366,7 +377,7 @@ public class MemoryExtractionService {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.setBearerAuth(apiKey);
-            if (provider.equals("openrouter")) {
+            if (provider.equals("openrouter") || provider.equals("huggingface")) {
                 headers.set("HTTP-Referer", "https://lifeos.app");
             }
 
@@ -387,9 +398,49 @@ public class MemoryExtractionService {
         return List.of();
     }
 
+    private List<MemoryChunk> callGeminiExtractionApi(String apiKey, String model, String prompt) {
+        String url = "https://generativelanguage.googleapis.com/v1beta/models/"
+                + model + ":generateContent?key=" + apiKey;
+        try {
+            ObjectNode body = objectMapper.createObjectNode();
+            
+            ArrayNode contents = body.putArray("contents");
+            ObjectNode msgNode = contents.addObject();
+            msgNode.put("role", "user");
+            msgNode.putArray("parts").addObject().put("text", prompt);
+
+            ObjectNode genConfig = body.putObject("generationConfig");
+            genConfig.put("temperature", 0.2);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            ResponseEntity<String> resp = restTemplate.exchange(
+                    url, HttpMethod.POST,
+                    new HttpEntity<>(objectMapper.writeValueAsString(body), headers),
+                    String.class);
+
+            if (resp.getStatusCode() == HttpStatus.OK && resp.getBody() != null) {
+                JsonNode root = objectMapper.readTree(resp.getBody());
+                String content = root.path("candidates").get(0)
+                        .path("content").path("parts").get(0)
+                        .path("text").asText("");
+                return parseMemoryChunks(content);
+            }
+        } catch (Exception e) {
+            log.warn("Gemini Extraction API call failed: {}", e.getMessage());
+        }
+        return List.of();
+    }
+
     private List<MemoryChunk> parseMemoryChunks(String raw) {
         String cleaned = raw.strip();
-        if (cleaned.startsWith("```")) {
+        
+        int startIndex = cleaned.indexOf('[');
+        int endIndex = cleaned.lastIndexOf(']');
+        if (startIndex != -1 && endIndex != -1 && startIndex <= endIndex) {
+            cleaned = cleaned.substring(startIndex, endIndex + 1);
+        } else if (cleaned.startsWith("```")) {
             cleaned = cleaned.replaceFirst("```[a-z]*\\s*", "").replaceAll("```$", "").strip();
         }
 
@@ -439,13 +490,13 @@ public class MemoryExtractionService {
 
     private String resolveExtractionProvider() {
         var config = aiConfigurationResolver.resolve();
-        String configured = (String) config.getModelConfig().getOrDefault("provider", "openrouter");
-        return configured.equals("gemini") ? "openrouter" : configured;
+        return (String) config.getModelConfig().getOrDefault("provider", "openrouter");
     }
 
     private String resolveExtractionModelName() {
+        var config = aiConfigurationResolver.resolve();
         String provider = resolveExtractionProvider();
-        return provider.equals("openai") ? "gpt-4o-mini" : "openai/gpt-4o-mini";
+        return aiConfigurationResolver.resolveChatModel(provider, config.getModelConfig(), null);
     }
 
     private String resolveExtractionApiKey() {

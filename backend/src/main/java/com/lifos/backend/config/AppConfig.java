@@ -5,8 +5,10 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import io.netty.channel.ChannelOption;
 import java.util.List;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadPoolExecutor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
@@ -40,6 +42,14 @@ public class AppConfig {
                 .build();
     }
 
+    /**
+     * Primary async executor for all embedding and AI background work.
+     * Marked @Primary so bare @Async annotations route here by default.
+     * CallerRunsPolicy is a safe fallback: if the queue is full the calling
+     * thread (event dispatcher) runs the task itself rather than dropping it,
+     * which provides natural back-pressure instead of silent job loss.
+     */
+    @Primary
     @Bean(name = "aiTaskExecutor")
     public Executor aiTaskExecutor(AiFoundationProperties aiFoundationProperties) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
@@ -47,6 +57,10 @@ public class AppConfig {
         executor.setMaxPoolSize(aiFoundationProperties.getAsync().getMaxPoolSize());
         executor.setQueueCapacity(aiFoundationProperties.getAsync().getQueueCapacity());
         executor.setThreadNamePrefix(aiFoundationProperties.getAsync().getThreadNamePrefix());
+        // CallerRunsPolicy: if queue saturated, run in dispatcher thread instead of dropping
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
         executor.initialize();
         return executor;
     }

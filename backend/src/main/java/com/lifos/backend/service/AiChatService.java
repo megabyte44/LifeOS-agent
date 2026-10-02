@@ -19,6 +19,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.publisher.Flux;
+import reactor.util.retry.Retry;
+import java.time.Duration;
 
 import java.io.IOException;
 import java.util.List;
@@ -167,9 +169,14 @@ public class AiChatService {
             String model, String apiKey, double temperature, int maxTokens, double topP,
             String provider) {
 
-        String url = provider.equals("openai")
-                ? "https://api.openai.com/v1/chat/completions"
-                : "https://openrouter.ai/api/v1/chat/completions";
+        String url = switch (provider) {
+            case "openai" -> "https://api.openai.com/v1/chat/completions";
+            case "huggingface" -> {
+                String custom = aiFoundationProperties.getHfInferenceUrl();
+                yield (custom != null && !custom.isBlank()) ? custom : "https://api-inference.huggingface.co/v1/chat/completions";
+            }
+            default -> "https://openrouter.ai/api/v1/chat/completions";
+        };
 
         if (apiKey == null || apiKey.isBlank()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "API key for " + provider + " is not configured.");
@@ -202,7 +209,7 @@ public class AiChatService {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.setBearerAuth(apiKey);
-            if (provider.equals("openrouter")) {
+            if (provider.equals("openrouter") || provider.equals("huggingface")) {
                 headers.set("HTTP-Referer", "https://lifeos.app");
             }
 
@@ -241,14 +248,14 @@ public class AiChatService {
 
         try {
             ObjectNode body = objectMapper.createObjectNode();
-            ArrayNode contents = body.putArray("contents");
 
+            // Use Gemini's systemInstruction field — NOT a user turn in contents
             if (!sysPrompt.isBlank()) {
-                ObjectNode sysNode = contents.addObject();
-                sysNode.put("role", "user");
-                sysNode.putArray("parts").addObject().put("text", sysPrompt);
+                ObjectNode sysInstr = body.putObject("systemInstruction");
+                sysInstr.putArray("parts").addObject().put("text", sysPrompt);
             }
 
+            ArrayNode contents = body.putArray("contents");
             for (AiChatRequest.AiMessage m : messages) {
                 ObjectNode msgNode = contents.addObject();
                 String geminiRole = m.getRole().equals("assistant") ? "model" : "user";
@@ -391,9 +398,14 @@ public class AiChatService {
             String model, String apiKey, double temperature, int maxTokens, double topP,
             String provider) {
 
-        String url = provider.equals("openai")
-                ? "https://api.openai.com/v1/chat/completions"
-                : "https://openrouter.ai/api/v1/chat/completions";
+        String url = switch (provider) {
+            case "openai" -> "https://api.openai.com/v1/chat/completions";
+            case "huggingface" -> {
+                String custom = aiFoundationProperties.getHfInferenceUrl();
+                yield (custom != null && !custom.isBlank()) ? custom : "https://api-inference.huggingface.co/v1/chat/completions";
+            }
+            default -> "https://openrouter.ai/api/v1/chat/completions";
+        };
 
         String resolvedModel = (model == null || model.isBlank())
                 ? (provider.equals("openrouter") ? "openai/gpt-4o-mini" : "gpt-4o-mini")
@@ -438,9 +450,14 @@ public class AiChatService {
                         } catch (Exception e) {
                             return Flux.empty();
                         }
-                    });
+                    })
+                    .onErrorMap(e -> {
+                        log.warn("Upstream AI provider error: {}", e.getMessage());
+                        return new RuntimeException("The AI provider unexpectedly dropped the connection. Please try again later.");
+                    })
+                    .retryWhen(Retry.backoff(3, Duration.ofMillis(500)).maxBackoff(Duration.ofSeconds(2)));
         } catch (Exception e) {
-            return Flux.error(e);
+            return Flux.error(new RuntimeException("The AI provider connection failed completely."));
         }
     }
 
@@ -453,13 +470,14 @@ public class AiChatService {
 
         try {
             ObjectNode body = objectMapper.createObjectNode();
-            ArrayNode contents = body.putArray("contents");
 
+            // Use Gemini's systemInstruction field — NOT a user turn in contents
             if (!sysPrompt.isBlank()) {
-                ObjectNode sysNode = contents.addObject();
-                sysNode.put("role", "user");
-                sysNode.putArray("parts").addObject().put("text", sysPrompt);
+                ObjectNode sysInstr = body.putObject("systemInstruction");
+                sysInstr.putArray("parts").addObject().put("text", sysPrompt);
             }
+
+            ArrayNode contents = body.putArray("contents");
             for (AiChatRequest.AiMessage m : messages) {
                 ObjectNode msgNode = contents.addObject();
                 String geminiRole = m.getRole().equals("assistant") ? "model" : "user";
@@ -494,9 +512,14 @@ public class AiChatService {
                         } catch (Exception e) {
                             return Flux.empty();
                         }
-                    });
+                    })
+                    .onErrorMap(e -> {
+                        log.warn("Upstream Gemini provider error: {}", e.getMessage());
+                        return new RuntimeException("The Gemini provider unexpectedly dropped the connection. Please try again later.");
+                    })
+                    .retryWhen(Retry.backoff(3, Duration.ofMillis(500)).maxBackoff(Duration.ofSeconds(2)));
         } catch (Exception e) {
-            return Flux.error(e);
+            return Flux.error(new RuntimeException("The Gemini provider connection failed completely."));
         }
     }
 

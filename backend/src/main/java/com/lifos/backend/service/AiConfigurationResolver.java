@@ -80,6 +80,9 @@ public class AiConfigurationResolver {
         if (!isBlank(readString(apiKeys, "gemini")) || !isBlank(aiFoundationProperties.getGeminiApiKey())) {
             return "gemini";
         }
+        if (!isBlank(readString(apiKeys, "huggingface")) || !isBlank(aiFoundationProperties.getHfApiKey())) {
+            return "huggingface";
+        }
         return null;
     }
 
@@ -92,6 +95,7 @@ public class AiConfigurationResolver {
         return switch (provider) {
             case "gemini" -> aiFoundationProperties.getGeminiApiKey();
             case "openrouter" -> aiFoundationProperties.getOpenrouterApiKey();
+            case "huggingface" -> aiFoundationProperties.getHfApiKey();
             case "openai" -> firstNonBlank(
                     readString(resolve().getApiKeys(), "openai"),
                     aiFoundationProperties.getOpenaiApiKey()
@@ -126,6 +130,7 @@ public class AiConfigurationResolver {
         putIfNotBlank(apiKeys, "openai", aiFoundationProperties.getOpenaiApiKey());
         putIfNotBlank(apiKeys, "openrouter", aiFoundationProperties.getOpenrouterApiKey());
         putIfNotBlank(apiKeys, "gemini", aiFoundationProperties.getGeminiApiKey());
+        putIfNotBlank(apiKeys, "huggingface", aiFoundationProperties.getHfApiKey());
 
         Map<String, Object> systemInstructions = new LinkedHashMap<>();
         systemInstructions.put("casualBuddy", "You are LifeOS, a concise and practical assistant. Give direct, useful answers and stay grounded in the user's request.");
@@ -159,6 +164,7 @@ public class AiConfigurationResolver {
         return switch (provider) {
             case "gemini" -> "gemini-2.0-flash";
             case "openrouter" -> "openai/gpt-4o-mini";
+            case "huggingface" -> "meta-llama/Llama-3.2-3B-Instruct";
             default -> "gpt-4o-mini";
         };
     }

@@ -1,7 +1,9 @@
 # Root-level gitignore for LifeOS-v3 monorepo
 
 # ── Firebase Service Account (NEVER commit this — contains private keys) ──
-**/firebase-service-account.json
+**/firebase-service-account*.json
+*.local.json
+.runtime.env
 
 HELP.md
 target/

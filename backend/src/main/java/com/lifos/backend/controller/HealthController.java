@@ -28,6 +28,7 @@ import java.util.Map;
 public class HealthController {
 
     private final DataSource dataSource;
+    private final com.lifos.backend.service.AiConfigurationResolver aiConfigurationResolver;
 
     @GetMapping
     public ResponseEntity<Map<String, String>> health() {
@@ -42,6 +43,21 @@ public class HealthController {
         body.put("dbType",    dbType);
         body.put("dbProvider", dbProvider);
         body.put("timestamp", Instant.now().toString());
+
+        try {
+            com.lifos.backend.entity.AiConfiguration config = aiConfigurationResolver.resolve();
+            Map<String, Object> modelCfg = config.getModelConfig();
+            String provider = (String) modelCfg.getOrDefault("provider", "openrouter");
+            String model = aiConfigurationResolver.resolveChatModel(provider, modelCfg, null);
+            String apiKey = aiConfigurationResolver.resolveProviderApiKey(provider, config.getApiKeys());
+            boolean hasKey = apiKey != null && !apiKey.trim().isEmpty();
+
+            body.put("resolvedAiProvider", provider);
+            body.put("resolvedAiModel", model);
+            body.put("hasResolvedAiApiKey", String.valueOf(hasKey));
+        } catch (Exception e) {
+            body.put("resolvedAiError", e.getMessage());
+        }
 
         return ResponseEntity.ok(body);
     }

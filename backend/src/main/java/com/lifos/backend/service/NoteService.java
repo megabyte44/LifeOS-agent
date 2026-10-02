@@ -60,7 +60,7 @@ public class NoteService {
                 .build();
         Note saved = noteRepository.save(n);
         String embedText = buildEmbedText(saved);
-        ingestionPipeline.ingestAsync(uid, "note", saved.getId(), embedText);
+        ingestionPipeline.ingestChunked(uid, "note", saved.getId(), embedText);
         eventPublisher.publishEvent(new KnowledgeGraphTriggerEvent(
                 uid, "note", saved.getId(), embedText));
         activityLogService.log(uid, "notes", "created", saved.getId(), "Created note: " + saved.getTitle());
@@ -77,7 +77,7 @@ public class NoteService {
         if (req.getType()    != null) n.setType(req.getType());
         Note saved = noteRepository.save(n);
         String embedText = buildEmbedText(saved);
-        ingestionPipeline.ingestAsync(uid, "note", saved.getId(), embedText);
+        ingestionPipeline.ingestChunked(uid, "note", saved.getId(), embedText);
         eventPublisher.publishEvent(new KnowledgeGraphTriggerEvent(
                 uid, "note", saved.getId(), embedText));
         return toResponse(saved);

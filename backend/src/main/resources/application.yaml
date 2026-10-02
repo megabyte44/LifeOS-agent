@@ -56,12 +56,14 @@ logging:
     root: INFO
 
 ai:
-  provider: ${AI_PROVIDER:}
-  model: ${AI_MODEL:}
-  openai-api-key: ${OPENAI_API_KEY:}
-  openrouter-api-key: ${OPENROUTER_API_KEY:}
-  openrouter-embedding-api-key: ${OPENROUTER_EMBEDDING_API_KEY:${OPENROUTER_API_KEY:}}
-  gemini-api-key: ${GEMINI_API_KEY:${GOOGLE_API_KEY:}}
+  provider: ${LIFOS_AI_PROVIDER:${AI_PROVIDER:}}
+  model: ${LIFOS_AI_MODEL:${AI_MODEL:}}
+  openai-api-key: ${LIFOS_OPENAI_API_KEY:${OPENAI_API_KEY:}}
+  openrouter-api-key: ${LIFOS_OPENROUTER_API_KEY:${OPENROUTER_API_KEY:}}
+  hf-api-key: ${LIFOS_HF_API_KEY:${HF_API_KEY:}}
+  hf-inference-url: ${LIFOS_HF_INFERENCE_URL:${HF_INFERENCE_URL:}}
+  openrouter-embedding-api-key: ${LIFOS_OPENROUTER_EMBEDDING_API_KEY:${OPENROUTER_EMBEDDING_API_KEY:${LIFOS_OPENROUTER_API_KEY:${OPENROUTER_API_KEY:}}}}
+  gemini-api-key: ${LIFOS_GEMINI_API_KEY:${GEMINI_API_KEY:${LIFOS_GOOGLE_API_KEY:${GOOGLE_API_KEY:}}}}
   embedding:
     dimensions: 1536
     max-input-chars: 24000
@@ -84,10 +86,10 @@ ai:
     graph-max-hops: 2
     graph-boost-weight: 0.15
   async:
-    core-pool-size: 2
-    max-pool-size: 4
-    queue-capacity: 100
-    thread-name-prefix: ai-
+    core-pool-size: 4        # threads always available for embedding/AI work
+    max-pool-size: 8         # burst capacity; scales with load
+    queue-capacity: 200      # pending embedding jobs before overflow policy kicks in
+    thread-name-prefix: ai-  # visible in thread dumps / APM
   insights:
     cron: ${AI_INSIGHTS_CRON:0 0 20 * * *}
 

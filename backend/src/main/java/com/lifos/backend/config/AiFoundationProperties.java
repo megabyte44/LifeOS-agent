@@ -26,6 +26,10 @@ public class AiFoundationProperties {
     private String openrouterEmbeddingApiKey = "";
     /** Set via GEMINI_API_KEY or GOOGLE_API_KEY */
     private String geminiApiKey = "";
+    /** Set via HF_API_KEY — used for HuggingFace Inference API or custom HF Space */
+    private String hfApiKey = "";
+    /** Set via HF_INFERENCE_URL — overrides default HF endpoint (e.g. your ZeroGPU Space URL) */
+    private String hfInferenceUrl = "";
 
     private final Embedding embedding = new Embedding();
     private final Streaming streaming = new Streaming();
@@ -96,9 +100,13 @@ public class AiFoundationProperties {
     @Getter
     @Setter
     public static class Async {
+        /** Threads always alive for embedding/AI background work. */
         private int corePoolSize = 4;
+        /** Max threads; scales under burst load. */
         private int maxPoolSize = 8;
-        private int queueCapacity = 100;
+        /** Pending jobs before CallerRunsPolicy back-pressure kicks in. */
+        private int queueCapacity = 200;
+        /** Prefix visible in thread dumps and APM tools. */
         private String threadNamePrefix = "ai-";
     }
 }

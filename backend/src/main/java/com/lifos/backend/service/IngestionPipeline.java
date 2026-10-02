@@ -1,5 +1,6 @@
 package com.lifos.backend.service;
 
+import com.lifos.backend.event.ChunkedEmbeddingTriggerEvent;
 import com.lifos.backend.event.EmbeddingTriggerEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -10,26 +11,25 @@ import org.springframework.stereotype.Service;
 import java.util.UUID;
 
 /**
- * Unified ingestion facade: handles {@code chunking → embedding → event publishing}
- * in a single call so future feature adoption is a 1-liner.
+ * Unified ingestion façade: resolves chunking strategy, publishes an
+ * {@link EmbeddingTriggerEvent}, and returns immediately.
  *
- * <h3>Usage</h3>
- * <pre>
- *   // Ingest a note (auto-chunks if long, publishes embedding event)
- *   ingestionPipeline.ingest(userUid, "note", noteId, noteContent);
+ * <h3>Design contract</h3>
+ * Every public method in this class is non-blocking.  The calling thread
+ * (an HTTP request thread or scheduler) returns as soon as the event is
+ * published.  Actual embedding work runs on the {@code aiTaskExecutor}
+ * thread pool via {@link com.lifos.backend.event.EmbeddingEventListener}.
  *
- *   // Delete embeddings for a deleted entity
- *   ingestionPipeline.delete(userUid, "note", noteId);
- * </pre>
+ * <h3>Why event-driven instead of direct @Async?</h3>
+ * Spring's {@code @TransactionalEventListener(AFTER_COMMIT)} guarantees the
+ * source row is committed before the worker reads it back.  A bare
+ * {@code @Async} call that starts immediately can race with the outer
+ * transaction and read stale (or missing) data.
  *
- * <h3>Chunking behaviour</h3>
- * <ul>
- *   <li>If {@code ai.chunking.enable-document-chunking=true} (default) and the text
- *       exceeds {@code chunkMaxChars}, {@link EmbeddingService#embedChunkedDocument}
- *       splits the text into overlapping chunks and stores each as a separate
- *       embedding row.</li>
- *   <li>Short texts fall through to the standard single-embedding path.</li>
- * </ul>
+ * <h3>Chunking</h3>
+ * For longer documents (notes, journals) callers should use
+ * {@link #ingestChunked} — the {@link com.lifos.backend.event.EmbeddingEventListener}
+ * delegates to {@link EmbeddingService#embedChunkedDocument} for those types.
  */
 @Slf4j
 @Service
@@ -39,52 +39,82 @@ public class IngestionPipeline {
     private final EmbeddingService embeddingService;
     private final ApplicationEventPublisher eventPublisher;
 
+    // ── Write path ────────────────────────────────────────────────────────────
+
     /**
-     * Ingests a document: chunks it if needed, embeds and stores all chunks.
-     * Runs synchronously — call from within an {@code @Async} method or use
-     * {@link #ingestAsync} for fire-and-forget behaviour.
+     * Publishes an embedding event for a short-text entity (todo, habit, planner
+     * item, user-profile, etc.).  Returns immediately — embedding happens
+     * asynchronously after the outer transaction commits.
      *
      * @param userUid    target user
-     * @param sourceType entity type (e.g. "note", "journal", "document")
+     * @param sourceType entity type label (e.g. "note", "todo", "habit")
      * @param sourceId   entity primary key
-     * @param text       full document text
+     * @param text       text to embed (null delegates to a delete event)
      */
     public void ingest(String userUid, String sourceType, UUID sourceId, String text) {
         if (text == null || text.isBlank()) {
+            delete(userUid, sourceType, sourceId);
             return;
         }
-        embeddingService.embedChunkedDocument(userUid, sourceType, sourceId, text);
+        eventPublisher.publishEvent(EmbeddingTextBuilder.buildEvent(userUid, sourceType, sourceId, text));
+        log.debug("[ingestion] Queued embed for {} {} (user={})", sourceType, sourceId, userUid);
     }
 
     /**
-     * Fire-and-forget version of {@link #ingest} — returns immediately.
+     * Same as {@link #ingest} but signals that the document should be chunked
+     * if it exceeds the configured {@code ai.chunking.chunk-max-chars} threshold.
+     * The {@link com.lifos.backend.event.EmbeddingEventListener} routes chunked
+     * types through {@link EmbeddingService#embedChunkedDocument}.
+     *
+     * <p>Currently notes and documents use this path.
      */
-    @Async
+    public void ingestChunked(String userUid, String sourceType, UUID sourceId, String text) {
+        if (text == null || text.isBlank()) {
+            delete(userUid, sourceType, sourceId);
+            return;
+        }
+        eventPublisher.publishEvent(
+                ChunkedEmbeddingTriggerEvent.of(userUid, sourceType, sourceId, text));
+        log.debug("[ingestion] Queued chunked-embed for {} {} (user={})", sourceType, sourceId, userUid);
+    }
+
+    // ── Delete path ───────────────────────────────────────────────────────────
+
+    /**
+     * Publishes a delete-embedding event.  The physical row removal is executed
+     * asynchronously on the {@code aiTaskExecutor} after the outer transaction
+     * commits, so it never blocks the calling thread.
+     */
+    public void delete(String userUid, String sourceType, UUID sourceId) {
+        eventPublisher.publishEvent(EmbeddingTextBuilder.deleteEvent(userUid, sourceType, sourceId));
+        log.debug("[ingestion] Queued delete for {} {} (user={})", sourceType, sourceId, userUid);
+    }
+
+    // ── Legacy compatibility ───────────────────────────────────────────────────
+
+    /**
+     * @deprecated Use {@link #ingest} directly — it is already non-blocking.
+     *             Kept for backward compatibility; will be removed in future.
+     */
+    @Deprecated(since = "2.0", forRemoval = true)
+    @Async("aiTaskExecutor")
     public void ingestAsync(String userUid, String sourceType, UUID sourceId, String text) {
         ingest(userUid, sourceType, sourceId, text);
     }
 
     /**
-     * Publishes an {@link EmbeddingTriggerEvent} for source types that are
-     * handled by the existing event-listener pipeline (notes, goals, etc.).
-     * Prefer {@link #ingest} for new features.
+     * @deprecated Use {@link #delete} directly.
      */
-    public void publishEvent(String userUid, String sourceType, UUID sourceId, String text) {
-        eventPublisher.publishEvent(EmbeddingTextBuilder.buildEvent(userUid, sourceType, sourceId, text));
-    }
-
-    /**
-     * Deletes all embeddings (including chunks) for the given source entity.
-     */
-    public void delete(String userUid, String sourceType, UUID sourceId) {
-        embeddingService.deleteBySource(sourceType, sourceId);
-        log.debug("Deleted embeddings for {} {}", sourceType, sourceId);
-    }
-
-    /**
-     * Publishes a delete event via the existing event-listener pipeline.
-     */
+    @Deprecated(since = "2.0", forRemoval = true)
     public void publishDeleteEvent(String userUid, String sourceType, UUID sourceId) {
-        eventPublisher.publishEvent(EmbeddingTextBuilder.deleteEvent(userUid, sourceType, sourceId));
+        delete(userUid, sourceType, sourceId);
+    }
+
+    /**
+     * @deprecated Use {@link #ingest} directly.
+     */
+    @Deprecated(since = "2.0", forRemoval = true)
+    public void publishEvent(String userUid, String sourceType, UUID sourceId, String text) {
+        ingest(userUid, sourceType, sourceId, text);
     }
 }
