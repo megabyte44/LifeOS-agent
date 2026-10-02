@@ -17,29 +17,29 @@ A focused life management application built with Spring Boot and Next.js. Combin
 ### Backend
 - **Framework**: Spring Boot 4.0.3
 - **Language**: Java 17
-- **Database**: PostgreSQL 16
-- **Migration**: Flyway
-- **Authentication**: Firebase Auth
-- **Security**: AES encryption for sensitive data
+- **Database**: PostgreSQL 16 with `pgvector`
+- **Migration**: Flyway (32 versioned migrations)
+- **Authentication**: Firebase Admin SDK
+- **Security**: AES-256-GCM encryption for credential vault
 - **Push Notifications**: Web Push (VAPID)
 - **Containerization**: Docker
 
 ### Frontend
-- **Framework**: Next.js 15
+- **Framework**: Next.js 16 (App Router, React 19)
 - **Language**: TypeScript
-- **UI Library**: Radix UI
+- **UI Library**: shadcn/ui + Radix UI primitives
 - **Styling**: Tailwind CSS
-- **State Management**: React Query (TanStack Query)
-- **PWA**: @ducanh2912/next-pwa
-- **AI Integration**: Google Generative AI
-- **Drag & Drop**: dnd-kit
+- **State Management**: TanStack React Query v5
+- **PWA**: `@ducanh2912/next-pwa` (offline caching + service worker)
+- **AI Streaming**: Server-Sent Events (SSE) bridge
+- **Drag & Drop**: `@dnd-kit`
 
 ## 📋 Prerequisites
 
 - **Java 17** or higher
-- **Node.js 18** or higher
-- **PostgreSQL 16** (or use Docker)
-- **Maven** (bundled with project)
+- **Node.js 20** or higher
+- **PostgreSQL 16** with `pgvector` (or use Docker)
+- **Maven** (bundled with project wrapper)
 - **Firebase Project** (for authentication)
 
 ## 🛠️ Setup Instructions
@@ -47,171 +47,96 @@ A focused life management application built with Spring Boot and Next.js. Combin
 ### 1. Clone the Repository
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/megabyte44/LifeOS-agent.git
 cd LifeOS-v3
 ```
 
 ### 2. Backend Setup
 
-#### Option A: Using Docker (Recommended)
-
-1. Navigate to backend directory:
-   ```bash
-   cd backend
-   ```
-
-2. Copy the environment template:
-   ```bash
-   cp .env.example .env
-   ```
-
+1. Copy the environment template:
    ```powershell
    # Windows PowerShell
-   Copy-Item .env.example .env
+   Copy-Item backend\.env.example backend\.env
+   ```
+   ```bash
+   # Linux / macOS
+   cp backend/.env.example backend/.env
    ```
 
-3. Edit `.env` and configure your settings:
+2. Edit `backend/.env` with your credentials:
    - Database credentials
-   - Firebase service account
-   - Encryption key
-   - VAPID keys for push notifications
+   - Firebase service account (or `FIREBASE_SERVICE_ACCOUNT_BASE64`)
+   - AES encryption key (`openssl rand -base64 32`)
+   - AI provider API keys (Gemini, OpenRouter, or OpenAI)
 
-4. Place your `firebase-service-account.json` in `backend/src/main/resources/`
-
-5. Start services with Docker Compose:
+3. Start PostgreSQL + pgvector in Docker:
    ```bash
-   docker-compose up -d
+   docker compose up db -d
    ```
 
-The backend will be available at `http://localhost:8000`
-
-#### Option B: Local Development
-
-1. Install PostgreSQL 16 and create database:
-   ```sql
-   CREATE DATABASE lifeos;
-   ```
-
-2. Navigate to backend directory:
-   ```bash
-   cd backend
-   ```
-
-3. Copy environment template:
-   ```bash
-   cp .env.example .env
-   ```
-
+4. Run the Spring Boot backend:
    ```powershell
    # Windows PowerShell
-   Copy-Item .env.example .env
-   ```
-
-4. Update `src/main/resources/application.yaml` with your database credentials
-
-5. Place your `firebase-service-account.json` in `src/main/resources/`
-
-6. Build and run:
-   ```powershell
-   # Windows (PowerShell/CMD)
-   .\mvnw.cmd clean install
+   cd backend
    .\mvnw.cmd spring-boot:run
    ```
-
    ```bash
-   # macOS/Linux/Git Bash
-   ./mvnw clean install
+   # macOS / Linux
+   cd backend
    ./mvnw spring-boot:run
    ```
+   The backend will be available at `http://localhost:8080`.
 
 ### 3. Frontend Setup
 
 1. Navigate to frontend directory:
    ```bash
    cd frontend
-   ```
-
-2. Install dependencies:
-   ```bash
    npm install
    ```
 
-3. Create `.env.local` file with your configuration:
+2. Configure `frontend/.env` (or `.env.local`):
    ```env
-   NEXT_PUBLIC_API_URL=http://localhost:8000
+   NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
    NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
-   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_auth_domain
+   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
    NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
-   # ... other Firebase config
+   # ... see frontend/.env.example for full details
    ```
 
-4. Run development server:
+3. Run development server:
    ```bash
    npm run dev
    ```
+   The frontend will be available at `http://localhost:9002`.
 
-The frontend will be available at `http://localhost:9002`
+---
 
-## 🔧 Configuration
+## 🚢 Production Deployment
 
-### Backend Environment Variables
+For full cloud production deployment (Vercel + Railway/Render + Neon PostgreSQL) or self-hosted VPS, refer to the complete deployment guide:
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `POSTGRES_DB` | PostgreSQL database name | Yes |
-| `POSTGRES_USER` | PostgreSQL username | Yes |
-| `POSTGRES_PASSWORD` | PostgreSQL password | Yes |
-| `ENCRYPTION_SECRET_KEY` | AES encryption key (Base64) | Yes |
-| `VAPID_PUBLIC_KEY` | VAPID public key for push notifications | Optional |
-| `VAPID_PRIVATE_KEY` | VAPID private key for push notifications | Optional |
+📖 **[Production Deployment Guide](./docs/DEPLOYMENT.md)**
+- Cloud Architecture & Recommended Hosting
+- Required Keys & Step-by-Step Generation (Firebase, VAPID, AES-256)
+- Complete Environment Variables Matrix for Frontend & Backend
+- Step-by-Step Vercel & Railway Deployment
+- CORS Configuration & Common Troubleshooting
 
-### Generating Encryption Key
+---
 
-```bash
-# Generate a 256-bit AES key
-openssl rand -base64 32
-```
+## 🐳 Docker Deployment (Full Stack)
 
-### Generating VAPID Keys
+Build and run the entire stack (PostgreSQL + Spring Boot + Next.js) with Docker Compose:
 
 ```bash
-# Generate VAPID keys for web push notifications
-npx web-push generate-vapid-keys
-```
-
-## 📦 Building for Production
-
-### Backend
-
-```bash
-cd backend
-./mvnw clean package -DskipTests
-```
-
-The JAR file will be created in `target/backend-0.0.1-SNAPSHOT.jar`
-
-### Frontend
-
-```bash
-cd frontend
-npm run build
-npm start
-```
-
-## 🐳 Docker Deployment
-
-Build and run the entire stack:
-
-```bash
-cd backend
-docker-compose up --build
+docker compose up --build
 ```
 
 Services:
-- PostgreSQL: `localhost:5432`
-- Backend API: `localhost:8000`
-
-For frontend, configure a separate container or deploy to Vercel/Netlify.
+- **Frontend UI**: `http://localhost:9002`
+- **Backend API**: `http://localhost:8000`
+- **PostgreSQL + pgvector**: `localhost:5432`
 
 ## 🤖 AI Architecture
 

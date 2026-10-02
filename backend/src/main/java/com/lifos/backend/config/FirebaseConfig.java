@@ -107,7 +107,7 @@ public class FirebaseConfig {
             log.info("Initializing Firebase Admin from FIREBASE_ADMIN_* fields");
             String normalizedPrivateKey = firebaseAdminPrivateKey.replace("\\n", "\n");
             String json = String.format(
-                    "{\"type\":\"service_account\",\"project_id\":\"%s\",\"private_key\":\"%s\",\"client_email\":\"%s\"}",
+                    "{\"type\":\"service_account\",\"project_id\":\"%s\",\"private_key\":\"%s\",\"client_email\":\"%s\",\"client_id\":\"0\",\"private_key_id\":\"auto\"}",
                     escapeJson(firebaseAdminProjectId),
                     escapeJson(normalizedPrivateKey),
                     escapeJson(firebaseAdminClientEmail)

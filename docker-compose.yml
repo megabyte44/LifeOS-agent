@@ -52,6 +52,7 @@ services:
     ports:
       - "${BACKEND_PORT_HOST:-8000}:8000"
     environment:
+      SERVER_PORT:                8000
       SPRING_DATASOURCE_URL:      jdbc:postgresql://db:5432/${POSTGRES_DB:-lifeos}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
