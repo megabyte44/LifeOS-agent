@@ -67,3 +67,6 @@ yarn-error.log*
 # logs
 logs/
 *.log
+
+# Private interview prep docs
+docs/interview/
