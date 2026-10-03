@@ -48,7 +48,7 @@ A focused life management application built with Spring Boot and Next.js. Combin
 
 ```bash
 git clone https://github.com/megabyte44/LifeOS-agent.git
-cd LifeOS-v3
+cd LifeOS-agent
 ```
 
 ### 2. Backend Setup
